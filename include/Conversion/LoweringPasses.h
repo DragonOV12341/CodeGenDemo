@@ -1,4 +1,5 @@
-#pragma once
+#ifndef _LoweringPasses_h_
+#define _LoweringPasses_h_
 
 #include "utils.h"
 
@@ -14,4 +15,9 @@ std::unique_ptr<OperationPass<ModuleOp>> createEraseRedundantUnCCastPass();
 
 std::unique_ptr<OperationPass<ModuleOp>> createConvertArithIndexToI64Pass();
 
+std::unique_ptr<OperationPass<ModuleOp>> createConvertMemrefToLLVMPtrPass();
+
+std::unique_ptr<OperationPass<ModuleOp>> createAmendFuncArgPass() ;
 }
+
+#endif

@@ -6,14 +6,14 @@ project(KernelCodeGen LANGUAGES CXX C)    # delete CUDA
 set(CMAKE_BUILD_WITH_INSTALL_NAME_DIR ON)
 set(CMAKE_CXX_STANDARD 17 CACHE STRING "C++ standard to conform to")
 
-set(LLVM_BUILD_LIBRARY_DIR /home/xiebaokang/projects/study/llvm/rocm-llvm/build/lib)
+set(LLVM_BUILD_LIBRARY_DIR "~/rocm-llvm-project/build/lib")
 message(STATUS "LLVM_BUILD_LIBRARY_DIR ${LLVM_BUILD_LIBRARY_DIR}")
 
 # set(MLIR_CONFIG_FILE_DIR /home/pangyunfei/rocm-llvm-project/build/lib/cmake/mlir)
 # message(STATUS "MLIR_CONFIG_FILE_DIR ${MLIR_CONFIG_FILE_DIR}")
 
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-  find_package(MLIR REQUIRED CONFIG PATHS ./cmake)
+  find_package(MLIR REQUIRED CONFIG PATHS ${CMAKE_SOURCE_DIR}/cmake)
 
   message(STATUS "Using MLIRConfig.cmake in: ${MLIR_DIR}")
   message(STATUS "Using LLVMConfig.cmake in: ${LLVM_DIR}")
@@ -49,7 +49,7 @@ link_directories(${LLVM_BUILD_LIBRARY_DIR})
 add_definitions(${LLVM_DEFINITIONS})
 message("add-def:${LLVM_DEFINITIONS}")
 add_compile_options(-g)
-
+add_definitions(-DGEN_PASS_DEF_CONVERTMEMREFTOLLVMPTR)
 
 # optional config
 ###################################################################
@@ -61,3 +61,4 @@ SET(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin)
 # add_subdirectory(include)
 add_subdirectory(lib)
 add_subdirectory(test)
+add_subdirectory(include/Conversion)

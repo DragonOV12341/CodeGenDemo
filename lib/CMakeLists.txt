@@ -1,3 +1,4 @@
+add_subdirectory(Conversion)
 file(GLOB analysis_src ./Analysis/*.cc)
 
 file(GLOB conversion_src ./Conversion/*.cc)
@@ -5,8 +6,7 @@ file(GLOB conversion_src ./Conversion/*.cc)
 file(GLOB operators_src ./Operators/*.cc)
 
 file(GLOB target_src ./Target/*.cc)
-
-add_library(kcg_runtime 
+add_library(kcg_runtime SHARED
             ${analysis_src}
             ${conversion_src}
             ${operators_src}
@@ -27,7 +27,7 @@ set(LLVM_LINK_COMPONENTS
         )
 
 include_directories(${CMAKE_CURRENT_BINARY_DIR})
-include_directories(${CMAKE_CURRENT_BINARY_DIR}/include/)
+include_directories(${CMAKE_CURRENT_BINARY_DIR}/include)
 get_property(dialect_libs GLOBAL PROPERTY MLIR_DIALECT_LIBS)
 get_property(conversion_libs GLOBAL PROPERTY MLIR_CONVERSION_LIBS)
 get_property(translation_libs GLOBAL PROPERTY MLIR_TRANSLATION_LIBS)
@@ -37,6 +37,7 @@ target_link_libraries(kcg_runtime
         ${dialect_libs}
         ${conversion_libs}
         ${translation_libs}
+        MemrefToLLVMPtr
         MLIRAnalysis
         MLIRCallInterfaces
         MLIRCastInterfaces

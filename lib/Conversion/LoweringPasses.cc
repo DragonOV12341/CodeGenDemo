@@ -331,6 +331,96 @@ struct ConvertIndexToI64Pass : public PassWrapper<ConvertIndexToI64Pass, Operati
   }
 };
 
+// amend func args
+struct ConvertFuncArgPass : public PassWrapper<ConvertFuncArgPass, OperationPass<ModuleOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ConvertFuncArgPass)
+
+  void runOnOperation() override {
+    auto module = llvm::dyn_cast<ModuleOp>(getOperation());
+    
+    module.walk([&](Operation *op) {
+      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
+        auto llvmType = getTypeConverter()->convertFunctionSignature(
+        funcOp.getFunctionType(), varargsAttr && varargsAttr.getValue(), false,
+        result);
+        auto args = funcOp.getArguments();
+        auto fnBody = op->getBlock();
+        for(auto i=0;i<funcOp.getNumArguments();++i){
+          auto argtype = args[i].getType();
+          if(argtype.isa<mlir::MemRefType>()){
+            auto castType = argtype.dyn_cast<mlir::MemRefType>();
+            auto elementType = castType.getElementType();
+            auto addrSpace = castType.getMemorySpaceAsInt();
+            auto llvmPtrType = LLVM::LLVMPointerType::get(elementType,addrSpace);
+            args[i].setType(llvmPtrType);
+          }
+        }
+      }
+    });
+
+  }
+};
+
+
+
+// ConvertMemrefToLLVMPtrBase
+
+class MemrefToLLVMPtrTypeConverter 
+    : public TypeConverter
+{
+public:
+    MemrefToLLVMPtrTypeConverter(MLIRContext *context){
+        addConversion([context](mlir::MemRefType memrefType) -> mlir::LLVM::LLVMPointerType {
+            // types with encoding are already in the right format
+            // TODO: check for layout encodings more specifically
+            auto eleType = memrefType.getElementType();
+            unsigned int addrSpace = memrefType.getMemorySpaceAsInt();
+            return LLVM::LLVMPointerType::get(eleType,addrSpace);
+        });
+    }
+
+private:
+    MLIRContext *context;
+};
+
+class MemrefToLLVMPtrConversionTarget : public ConversionTarget
+{
+
+public:
+    explicit MemrefToLLVMPtrConversionTarget(
+        MLIRContext &ctx,
+        MemrefToLLVMPtrTypeConverter &typeConverter) : ConversionTarget(ctx)
+    {
+        addLegalDialect<mlir::LLVM::LLVMDialect>();
+        // addDynamicallyLegalDialect<mlir::memref::MemRefDialect>();
+        addLegalOp<mlir::UnrealizedConversionCastOp>();
+    }
+};
+
+class ConvertMemrefToLLVMPtr : public ::impl::ConvertMemrefToLLVMPtrBase<ConvertMemrefToLLVMPtr> {
+public:
+  using ConvertMemrefToLLVMPtrBase<ConvertMemrefToLLVMPtr>::ConvertMemrefToLLVMPtrBase;
+  
+  void runOnOperation() override {
+    MLIRContext *context = &getContext();
+    ModuleOp mod = getOperation();
+    // type converter
+    MemrefToLLVMPtrTypeConverter typeConverter(context);
+    MemrefToLLVMPtrConversionTarget target(*context, typeConverter);
+    // rewrite patterns
+    RewritePatternSet patterns(context);
+    mod.walk([](mlir::func::FuncOp funcOp){
+        ;
+    });
+
+    if (failed(applyPartialConversion(mod, target, std::move(patterns))))
+      return signalPassFailure();
+  }
+};
+
+
+// ===================== create pass interfaces ======================
+
 std::unique_ptr<OperationPass<ModuleOp>> createParallelToROCDLPass() {
   return std::make_unique<ParallelToROCDLPass>();
 }
@@ -348,5 +438,12 @@ std::unique_ptr<OperationPass<ModuleOp>> createConvertArithIndexToI64Pass() {
   return std::make_unique<ConvertArithIndexToI64Pass>();
 }
 
+std::unique_ptr<OperationPass<ModuleOp>> createConvertMemrefToLLVMPtrPass() {
+    return std::make_unique<ConvertMemrefToLLVMPtr>();
+}
+
+std::unique_ptr<OperationPass<ModuleOp>> createAmendFuncArgPass() {
+    return std::make_unique<ConvertFuncArgPass>();
+}
 
 }

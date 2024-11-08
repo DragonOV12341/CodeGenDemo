@@ -59,17 +59,19 @@ bool secondLowering(mlir::ModuleOp& mod, mlir::MLIRContext& context) {
   pm.addPass(createConvertArithIndexToI64Pass());
   pm.addPass(mlir::createArithToLLVMConversionPass());           // arith -> llvm
   pm.addPass(mlir::createConvertVectorToLLVMPass());             // vector -> llvm
-  pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());  // memref -> llvm
+  pm.addPass(createAmendFuncArgPass());
+  // pm.addPass(mlir::createFinalizeMemRefToLLVMConversionPass());  // memref -> llvm : TODO : conv memref ptr to llvm ptr
 
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createSymbolDCEPass());
-
-  pm.addPass(mlir::createConvertFuncToLLVMPass());               // func -> llvm
   pm.addPass(createEraseRedundantUnCCastPass());
+#if 0
 
+  pm.addPass(mlir::createConvertFuncToLLVMPass());               // func -> llvm 
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createSymbolDCEPass());
+#endif
 
   if (mlir::failed(pm.run(mod)))
     return false;
@@ -92,10 +94,12 @@ bool KernelCodeGenerator::lowering(mlir::ModuleOp& mod) {
       // for (const auto &entry : opCountMap) {
       //   llvm::outs() << entry.first << ": " << entry.second << "\n";
       // }
+      #if 0
       if (auto llvm_mod = translateModuleToLLVMIR(mod)){
         llvm_mod->print(llvm::outs(), nullptr);
         return true;
       }
+      #endif
       return true;
     }
     return false;

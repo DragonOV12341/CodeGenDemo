@@ -100,6 +100,7 @@
 #include "mlir/IR/BuiltinDialect.h"
 #include "llvm/ADT/Sequence.h"
 #include "mlir/Conversion/Passes.h.inc"
+#include "Conversion/MemrefToLLVMPtrPass.h.inc"
 
 #include <iostream>
 #include <memory>
