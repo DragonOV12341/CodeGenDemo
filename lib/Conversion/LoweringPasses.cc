@@ -108,6 +108,17 @@ struct SCFParallelToGPULowering : public OpRewritePattern<scf::ParallelOp> {
   }
 };
 
+struct RemoveScfReduceOpPass : public OpRewritePattern<scf::ReduceOp> {
+  using OpRewritePattern<scf::ReduceOp>::OpRewritePattern;
+
+  LogicalResult matchAndRewrite(scf::ReduceOp reduceOp, PatternRewriter &rewriter) const final {
+    rewriter.eraseOp(reduceOp);
+    return success();
+  }
+};
+
+
+
 // 将 GUP 的IdOp转成 rocdl的IdOp，读取func的attr加到新的IdOp上
 template <typename IdOp, typename XOp, typename YOp, typename ZOp>
 struct IdOpGPUToROCDLLowering : public OpRewritePattern<IdOp> {
@@ -180,6 +191,7 @@ struct ParallelToROCDLPass : public PassWrapper<ParallelToROCDLPass, OperationPa
     target.addLegalDialect<ROCDL::ROCDLDialect, arith::ArithDialect>();
 
     patterns.add<SCFParallelToGPULowering>(&getContext());
+    patterns.add<RemoveScfReduceOpPass>(&getContext());
     // mlir::populateGpuToROCDLConversionPatterns(typeConverter, patterns, gpu::amd::HIP);
     patterns.add<IdOpGPUToROCDLLowering<gpu::BlockIdOp, ROCDL::BlockIdXOp, 
                                        ROCDL::BlockIdYOp, ROCDL::BlockIdZOp>>(&getContext(), StringRef{"func.grid.dim"});
@@ -335,5 +347,6 @@ std::unique_ptr<OperationPass<ModuleOp>> createEraseRedundantUnCCastPass() {
 std::unique_ptr<OperationPass<ModuleOp>> createConvertArithIndexToI64Pass() {
   return std::make_unique<ConvertArithIndexToI64Pass>();
 }
+
 
 }

@@ -41,6 +41,7 @@ bool firstLowering(mlir::ModuleOp& mod, mlir::MLIRContext& context) {
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createLowerAffinePass());                     // affine -> scf/vector
   pm.addPass(mlir::createParallelLoopToGpuPass());               // scf.parallelOp -> gpu...
+  pm.addPass(mlir::createLowerAffinePass());                     // affine -> scf/vector
   pm.addPass(mlir::createCanonicalizerPass());
   pm.addPass(mlir::createCSEPass());
   pm.addPass(mlir::createSymbolDCEPass());
@@ -79,7 +80,8 @@ bool KernelCodeGenerator::lowering(mlir::ModuleOp& mod) {
   auto res_1 = firstLowering(mod, context);
   if (res_1) {
     auto res_2 = secondLowering(mod, context);
-    if (res_2) {
+    // if (res_2) 
+    {
       mod.dump();
       // std::map<std::string, int> opCountMap;
       // mod.walk([&](Operation *op) {
