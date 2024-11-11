@@ -155,7 +155,7 @@ struct IdOpGPUToROCDLLowering : public OpRewritePattern<IdOp> {
     if (!boundsAttrName.empty() && funcOp) {
       if (auto attr = llvm::dyn_cast<DenseI32ArrayAttr>(funcOp->getAttr(boundsAttrName))) {
         int32_t maximum = attr[static_cast<uint32_t>(idOp.getDimension())];
-        newOp.getDefiningOp()->setAttr("range", rewriter.getDenseI32ArrayAttr({0, maximum}));
+        newOp.getDefiningOp()->setAttr("range", rewriter.getDenseI64ArrayAttr({0, maximum}));
       }
     }
     Value indexVal = rewriter.create<arith::IndexCastOp>(loc, rewriter.getIndexType(), newOp);
@@ -240,7 +240,7 @@ struct ROCDLIdOpModifyPass : public PassWrapper<ROCDLIdOpModifyPass, OperationPa
   }
 };
 
-// 去除多余的unrealized_conversion_cast操作
+// 弃用，去除多余的unrealized_conversion_cast操作
 struct EraseRedundantUnCCastPass : public PassWrapper<EraseRedundantUnCCastPass, OperationPass<ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(EraseRedundantUnCCastPass)
   
@@ -277,7 +277,7 @@ struct EraseRedundantUnCCastPass : public PassWrapper<EraseRedundantUnCCastPass,
   }
 };
 
-// 将arith的constantOp（index）转成i64
+// 弃用，将arith的constantOp（index）转成i64
 struct ConvertArithIndexToI64Pass : public PassWrapper<ConvertArithIndexToI64Pass, OperationPass<ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ConvertArithIndexToI64Pass)
 
@@ -331,145 +331,44 @@ struct ConvertIndexToI64Pass : public PassWrapper<ConvertIndexToI64Pass, Operati
   }
 };
 
-class MyRewriter : public RewriterBase{
-
-};
-
-// amend func args
-struct ConvertFuncArgPass : public PassWrapper<ConvertFuncArgPass, OperationPass<ModuleOp>> {
-  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ConvertFuncArgPass)
+// affine 循环展开
+struct AffineFullUnrollPass : public PassWrapper<AffineFullUnrollPass, OperationPass<ModuleOp>> {
+  MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(AffineFullUnrollPass)
 
   void runOnOperation() override {
-    auto module = llvm::dyn_cast<ModuleOp>(getOperation());
-    
-    module.walk([&](Operation *op) {
-      if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        auto oldFuncType = funcOp.getFunctionType();
-        llvm::SmallVector<mlir::Type, 4> newArgTypes;
-        mlir::TypeConverter typeConverter;
-        typeConverter.addConversion([&](mlir::MemRefType type) -> mlir::Type {
-            return mlir::LLVM::LLVMPointerType::get(type.getContext(),type.getElementType(),type.getMemorySpaceAsInt());
-        });
-        // 遍历参数类型，将MemRef转换为llvm.ptr类型
-        for (mlir::Type argType : oldFuncType.getInputs()) {
-            if (auto memrefType = argType.dyn_cast<mlir::MemRefType>()) {
-                // 将MemRef类型转换为LLVM指针类型
-                newArgTypes.push_back(typeConverter.convertType(memrefType));
-            } else {
-                // 保留非MemRef类型
-                newArgTypes.push_back(argType);
-            }
+    getOperation().walk([&] (affine::AffineForOp forOp){
+      if (auto unrollName = forOp->getAttr("affine.loop")) {
+        auto unrollAttr = llvm::dyn_cast<mlir::StringAttr>(unrollName);
+        // llvm::outs() << unrollAttr.getValue().str() << "\n";
+        if (unrollAttr.getValue().str() == "unroll") {
+          if (failed(affine::loopUnrollFull(forOp))) {
+            return signalPassFailure();
+          }
         }
-        mlir::OpBuilder builder(funcOp);
-        auto newFuncType = mlir::FunctionType::get(op->getContext(), newArgTypes, oldFuncType.getResults());
-        auto newFuncOp = builder.create<mlir::func::FuncOp>(funcOp.getLoc(),funcOp.getName(), newFuncType);
-        
-        funcOp.getBody().cloneInto(&newFuncOp.getFunctionBody(),);
-        funcOp.getBody().cloneInto(&newFuncOp.getBody(),newFuncOp.getBody().begin());
-        // newFuncOp.getBody().takeBody(funcOp.getBody());
-        
-        // 更新参数引用
-        // mlir::Block &entryBlock = newFuncOp.getBody().front();
-        // auto e = entryBlock.getNumArguments();
-        // for (size_t i = 0 ; i < e; ++i) {
-        //     auto oldArg = funcOp.getArgument(i);
-        //     auto newArg = entryBlock.getArgument(i);
-
-        //     if (oldArg.getType().isa<mlir::MemRefType>()) {
-        //         // 对于原先的MemRef参数，替换为对应的llvm.ptr类型的参数
-        //         oldArg.replaceAllUsesWith(newArg);
-        //     }
-        // }
-        funcOp.erase();
       }
     });
-
   }
 };
-
-
-
-// ConvertMemrefToLLVMPtrBase
-
-class MemrefToLLVMPtrTypeConverter 
-    : public TypeConverter
-{
-public:
-    MemrefToLLVMPtrTypeConverter(MLIRContext *context){
-        addConversion([context](mlir::MemRefType memrefType) -> mlir::LLVM::LLVMPointerType {
-            // types with encoding are already in the right format
-            // TODO: check for layout encodings more specifically
-            auto eleType = memrefType.getElementType();
-            unsigned int addrSpace = memrefType.getMemorySpaceAsInt();
-            return LLVM::LLVMPointerType::get(eleType,addrSpace);
-        });
-    }
-
-private:
-    MLIRContext *context;
-};
-
-class MemrefToLLVMPtrConversionTarget : public ConversionTarget
-{
-
-public:
-    explicit MemrefToLLVMPtrConversionTarget(
-        MLIRContext &ctx,
-        MemrefToLLVMPtrTypeConverter &typeConverter) : ConversionTarget(ctx)
-    {
-        addLegalDialect<mlir::LLVM::LLVMDialect>();
-        // addDynamicallyLegalDialect<mlir::memref::MemRefDialect>();
-        addLegalOp<mlir::UnrealizedConversionCastOp>();
-    }
-};
-
-class ConvertMemrefToLLVMPtr : public ::impl::ConvertMemrefToLLVMPtrBase<ConvertMemrefToLLVMPtr> {
-public:
-  using ConvertMemrefToLLVMPtrBase<ConvertMemrefToLLVMPtr>::ConvertMemrefToLLVMPtrBase;
-  
-  void runOnOperation() override {
-    MLIRContext *context = &getContext();
-    ModuleOp mod = getOperation();
-    // type converter
-    MemrefToLLVMPtrTypeConverter typeConverter(context);
-    MemrefToLLVMPtrConversionTarget target(*context, typeConverter);
-    // rewrite patterns
-    RewritePatternSet patterns(context);
-    mod.walk([](mlir::func::FuncOp funcOp){
-        ;
-    });
-
-    if (failed(applyPartialConversion(mod, target, std::move(patterns))))
-      return signalPassFailure();
-  }
-};
-
-
-// ===================== create pass interfaces ======================
 
 std::unique_ptr<OperationPass<ModuleOp>> createParallelToROCDLPass() {
   return std::make_unique<ParallelToROCDLPass>();
 }
 
-//  弃用，自己写了一个从gpu到rocdl的pass，转了idop和BarrierOp
+// 弃用，自己写了一个从gpu到rocdl的pass，转了idop和BarrierOp
 std::unique_ptr<OperationPass<ModuleOp>> createROCDLIdOpModifyPass() {
   return std::make_unique<ROCDLIdOpModifyPass>();
 }
-
+// 弃用
 std::unique_ptr<OperationPass<ModuleOp>> createEraseRedundantUnCCastPass() {
   return std::make_unique<EraseRedundantUnCCastPass>();
 }
-
+// 弃用
 std::unique_ptr<OperationPass<ModuleOp>> createConvertArithIndexToI64Pass() {
   return std::make_unique<ConvertArithIndexToI64Pass>();
 }
 
-std::unique_ptr<OperationPass<ModuleOp>> createConvertMemrefToLLVMPtrPass() {
-    return std::make_unique<ConvertMemrefToLLVMPtr>();
-}
-
-std::unique_ptr<OperationPass<ModuleOp>> createAmendFuncArgPass() {
-    return std::make_unique<ConvertFuncArgPass>();
+std::unique_ptr<OperationPass<ModuleOp>> createAffineFullUnrollPass() {
+  return std::make_unique<AffineFullUnrollPass>();
 }
 
 }

@@ -103,6 +103,9 @@
 #include "Conversion/MemrefToLLVMPtrPass.h.inc"
 #include <mlir/Conversion/LLVMCommon/Pattern.h>
 
+// conversion
+#include "mlir/Conversion/ReconcileUnrealizedCasts/ReconcileUnrealizedCasts.h"
+
 #include <iostream>
 #include <memory>
 #include <functional>
