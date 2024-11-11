@@ -331,6 +331,10 @@ struct ConvertIndexToI64Pass : public PassWrapper<ConvertIndexToI64Pass, Operati
   }
 };
 
+class MyRewriter : public RewriterBase{
+
+};
+
 // amend func args
 struct ConvertFuncArgPass : public PassWrapper<ConvertFuncArgPass, OperationPass<ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(ConvertFuncArgPass)
@@ -340,21 +344,43 @@ struct ConvertFuncArgPass : public PassWrapper<ConvertFuncArgPass, OperationPass
     
     module.walk([&](Operation *op) {
       if (auto funcOp = dyn_cast<func::FuncOp>(op)) {
-        auto llvmType = getTypeConverter()->convertFunctionSignature(
-        funcOp.getFunctionType(), varargsAttr && varargsAttr.getValue(), false,
-        result);
-        auto args = funcOp.getArguments();
-        auto fnBody = op->getBlock();
-        for(auto i=0;i<funcOp.getNumArguments();++i){
-          auto argtype = args[i].getType();
-          if(argtype.isa<mlir::MemRefType>()){
-            auto castType = argtype.dyn_cast<mlir::MemRefType>();
-            auto elementType = castType.getElementType();
-            auto addrSpace = castType.getMemorySpaceAsInt();
-            auto llvmPtrType = LLVM::LLVMPointerType::get(elementType,addrSpace);
-            args[i].setType(llvmPtrType);
-          }
+        auto oldFuncType = funcOp.getFunctionType();
+        llvm::SmallVector<mlir::Type, 4> newArgTypes;
+        mlir::TypeConverter typeConverter;
+        typeConverter.addConversion([&](mlir::MemRefType type) -> mlir::Type {
+            return mlir::LLVM::LLVMPointerType::get(type.getContext(),type.getElementType(),type.getMemorySpaceAsInt());
+        });
+        // 遍历参数类型，将MemRef转换为llvm.ptr类型
+        for (mlir::Type argType : oldFuncType.getInputs()) {
+            if (auto memrefType = argType.dyn_cast<mlir::MemRefType>()) {
+                // 将MemRef类型转换为LLVM指针类型
+                newArgTypes.push_back(typeConverter.convertType(memrefType));
+            } else {
+                // 保留非MemRef类型
+                newArgTypes.push_back(argType);
+            }
         }
+        mlir::OpBuilder builder(funcOp);
+        auto newFuncType = mlir::FunctionType::get(op->getContext(), newArgTypes, oldFuncType.getResults());
+        auto newFuncOp = builder.create<mlir::func::FuncOp>(funcOp.getLoc(),funcOp.getName(), newFuncType);
+        
+        funcOp.getBody().cloneInto(&newFuncOp.getFunctionBody(),);
+        funcOp.getBody().cloneInto(&newFuncOp.getBody(),newFuncOp.getBody().begin());
+        // newFuncOp.getBody().takeBody(funcOp.getBody());
+        
+        // 更新参数引用
+        // mlir::Block &entryBlock = newFuncOp.getBody().front();
+        // auto e = entryBlock.getNumArguments();
+        // for (size_t i = 0 ; i < e; ++i) {
+        //     auto oldArg = funcOp.getArgument(i);
+        //     auto newArg = entryBlock.getArgument(i);
+
+        //     if (oldArg.getType().isa<mlir::MemRefType>()) {
+        //         // 对于原先的MemRef参数，替换为对应的llvm.ptr类型的参数
+        //         oldArg.replaceAllUsesWith(newArg);
+        //     }
+        // }
+        funcOp.erase();
       }
     });
 

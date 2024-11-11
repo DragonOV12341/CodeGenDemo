@@ -101,6 +101,7 @@
 #include "llvm/ADT/Sequence.h"
 #include "mlir/Conversion/Passes.h.inc"
 #include "Conversion/MemrefToLLVMPtrPass.h.inc"
+#include <mlir/Conversion/LLVMCommon/Pattern.h>
 
 #include <iostream>
 #include <memory>
